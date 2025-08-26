@@ -5,6 +5,11 @@ import moviepy.editor as mp
 import tempfile
 import os
 from werkzeug.exceptions import BadRequest
+import logging
+
+# Configuration des logs
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -15,27 +20,56 @@ def health():
 @app.route('/process_video', methods=['POST'])
 def process_video():
     try:
-        # Récupérer les données JSON
-        data = request.get_json()
+        logger.info("Début du traitement vidéo")
+        
+        # Vérifier le Content-Type et récupérer les données
+        if request.content_type == 'application/json':
+            data = request.get_json()
+        else:
+            # Essayer de parser comme JSON même si le Content-Type n'est pas correct
+            try:
+                data = json.loads(request.get_data().decode('utf-8'))
+            except:
+                data = None
+        
         if not data:
-            return jsonify({"success": False, "error": "Pas de données JSON"}), 400
+            logger.error("Aucune donnée JSON reçue")
+            return jsonify({"success": False, "error": "Aucune donnée JSON reçue"}), 400
+        
+        logger.info(f"Données reçues: {list(data.keys())}")
         
         video_base64 = data.get('video_base64')
         num_shorts = int(data.get('num_shorts', 3))
         
         if not video_base64:
+            logger.error("video_base64 manquant dans les données")
             return jsonify({"success": False, "error": "video_base64 manquant"}), 400
         
+        logger.info(f"Taille des données base64: {len(video_base64)} caractères")
+        
         # Décoder et sauvegarder la vidéo
-        video_data = base64.b64decode(video_base64)
+        try:
+            video_data = base64.b64decode(video_base64)
+            logger.info(f"Données vidéo décodées: {len(video_data)} bytes")
+        except Exception as e:
+            logger.error(f"Erreur décodage base64: {str(e)}")
+            return jsonify({"success": False, "error": f"Erreur décodage base64: {str(e)}"}), 400
         
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as temp_video:
             temp_video.write(video_data)
             video_path = temp_video.name
         
+        logger.info(f"Vidéo sauvegardée: {video_path}")
+        
         # Charger la vidéo avec MoviePy
-        video = mp.VideoFileClip(video_path)
-        duration = video.duration
+        try:
+            video = mp.VideoFileClip(video_path)
+            duration = video.duration
+            logger.info(f"Durée de la vidéo: {duration}s")
+        except Exception as e:
+            logger.error(f"Erreur chargement vidéo: {str(e)}")
+            os.unlink(video_path)
+            return jsonify({"success": False, "error": f"Erreur chargement vidéo: {str(e)}"}), 400
         
         if duration < 30:
             video.close()
@@ -45,54 +79,66 @@ def process_video():
         shorts = []
         
         # Créer les shorts
-        for i in range(min(num_shorts, 5)):  # Maximum 5 shorts
+        for i in range(min(num_shorts, 5)):
+            logger.info(f"Création du short {i+1}/{num_shorts}")
+            
             # Calculer les timings
             segment_duration = duration / num_shorts
             start_time = i * segment_duration + min(10, segment_duration * 0.2)
             end_time = min(duration, start_time + 15)
             
             if end_time - start_time < 5:
+                logger.warning(f"Segment {i} trop court, arrêt")
                 break
             
-            # Extraire et redimensionner le clip
-            clip = video.subclip(start_time, end_time)
-            
-            # Redimensionner pour format vertical (9:16)
-            clip_resized = clip.resize(height=1920).crop(width=1080)
-            
-            # Sauvegarder temporairement
-            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as temp_short:
-                clip_resized.write_videofile(
-                    temp_short.name, 
-                    codec='libx264',
-                    audio_codec='aac',
-                    temp_audiofile='temp-audio.m4a',
-                    remove_temp=True,
-                    verbose=False,
-                    logger=None
-                )
+            try:
+                # Extraire et redimensionner le clip
+                clip = video.subclip(start_time, end_time)
                 
-                # Encoder en base64
-                with open(temp_short.name, 'rb') as f:
-                    short_base64 = base64.b64encode(f.read()).decode()
+                # Redimensionner pour format vertical (9:16)
+                clip_resized = clip.resize(height=1920).crop(width=1080)
                 
-                shorts.append({
-                    'file_base64': short_base64,
-                    'type': 'but' if i % 2 == 0 else 'dribble',
-                    'timestamp': start_time,
-                    'duration': end_time - start_time,
-                    'index': i
-                })
+                # Sauvegarder temporairement
+                with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as temp_short:
+                    clip_resized.write_videofile(
+                        temp_short.name, 
+                        codec='libx264',
+                        audio_codec='aac',
+                        temp_audiofile='temp-audio.m4a',
+                        remove_temp=True,
+                        verbose=False,
+                        logger=None
+                    )
+                    
+                    # Encoder en base64
+                    with open(temp_short.name, 'rb') as f:
+                        short_base64 = base64.b64encode(f.read()).decode()
+                    
+                    shorts.append({
+                        'file_base64': short_base64,
+                        'type': 'but' if i % 2 == 0 else 'dribble',
+                        'timestamp': start_time,
+                        'duration': end_time - start_time,
+                        'index': i
+                    })
+                    
+                    logger.info(f"Short {i+1} créé avec succès")
+                    
+                    # Nettoyer le fichier temporaire
+                    os.unlink(temp_short.name)
                 
-                # Nettoyer le fichier temporaire
-                os.unlink(temp_short.name)
-            
-            clip_resized.close()
-            clip.close()
+                clip_resized.close()
+                clip.close()
+                
+            except Exception as e:
+                logger.error(f"Erreur création short {i}: {str(e)}")
+                continue
         
         # Nettoyer
         video.close()
         os.unlink(video_path)
+        
+        logger.info(f"Traitement terminé: {len(shorts)} shorts créés")
         
         return jsonify({
             "success": True,
@@ -102,6 +148,7 @@ def process_video():
         })
         
     except Exception as e:
+        logger.error(f"Erreur générale: {str(e)}")
         return jsonify({
             "success": False, 
             "error": str(e)
@@ -110,4 +157,4 @@ def process_video():
 if __name__ == '__main__':
     # Pour Render.com, utiliser le port fourni par la variable d'environnement
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False)
