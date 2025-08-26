@@ -1,5 +1,16 @@
-Flask==3.1.2
-moviepy==2.0.0.dev2
-gunicorn==23.0.0
-Werkzeug==3.1.3
+# Web framework
+Flask==2.3.3
 
+# Vidéo et audio
+moviepy==1.0.3
+ffmpeg-python==0.2.0
+
+# Manipulation images (version stable pour MoviePy)
+Pillow==9.5.0
+
+# Utils
+Werkzeug==2.3.7
+gunicorn==21.2.0
+
+# Logging et JSON
+requests==2.31.0
