@@ -109,7 +109,12 @@ def process_video():
             try:
                 # Extraire et redimensionner le clip
                 clip = video.subclip(start_time, end_time)
-                clip_resized = clip.resize(height=1920).crop(width=1080)
+
+                try:
+                    clip_resized = clip.resize(height=1920).crop(width=1080)
+                except Exception as e:
+                    logger.warning(f"Crop échoué ({str(e)}), fallback en simple resize")
+                    clip_resized = clip.resize(height=1920)
                 
                 # Sauvegarder temporairement
                 with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as temp_short:
@@ -119,7 +124,7 @@ def process_video():
                         audio_codec='aac',
                         temp_audiofile='temp-audio.m4a',
                         remove_temp=True,
-                        verbose=False,
+                        verbose=True,   # ✅ logs ffmpeg visibles
                         logger=None
                     )
                     
@@ -149,6 +154,16 @@ def process_video():
         # Nettoyer
         video.close()
         os.unlink(video_path)
+
+        # ✅ Si aucun short n'a été créé
+        if len(shorts) == 0:
+            logger.warning("Aucun short créé")
+            return jsonify({
+                "success": False,
+                "error": "Aucun short généré",
+                "original_duration": duration,
+                "shorts_created": 0
+            }), 400
         
         logger.info(f"Traitement terminé: {len(shorts)} shorts créés")
         
