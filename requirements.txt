@@ -5,12 +5,14 @@ Flask==2.3.3
 moviepy==1.0.3
 ffmpeg-python==0.2.0
 
-# Manipulation images (version stable pour MoviePy)
+# Manipulation images
 Pillow==9.5.0
 
 # Utils
 Werkzeug==2.3.7
 gunicorn==21.2.0
-
-# Logging et JSON
 requests==2.31.0
+
+# OpenCV + NumPy pour détection highlights
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
