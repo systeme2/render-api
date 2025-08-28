@@ -4,6 +4,8 @@ import tempfile
 import requests
 import base64
 from flask import Flask, request, jsonify
+import cv2
+import numpy as np
 
 app = Flask(__name__)
 
@@ -66,6 +68,53 @@ def create_shorts(video_path, num_shorts, short_length=60):
 
     return shorts
 
+
+# -------------------------------
+# Étape 2 : Détection Highlights
+# -------------------------------
+
+def detect_highlights(video_path, threshold=50):
+    """
+    Détecte les moments 'dynamiques' dans une vidéo (but, dribble, action rapide)
+    Retourne une liste de timestamps (en secondes).
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise ValueError("Impossible d’ouvrir la vidéo")
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    prev_frame = None
+    highlights = []
+    frame_number = 0
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (21, 21), 0)
+
+        if prev_frame is not None:
+            diff = cv2.absdiff(prev_frame, gray)
+            score = np.sum(diff) / diff.size
+
+            # Si mouvement > seuil, on marque un highlight
+            if score > threshold:
+                timestamp = frame_number / fps
+                highlights.append(timestamp)
+
+        prev_frame = gray
+        frame_number += 1
+
+    cap.release()
+    return highlights
+
+
+# -------------------------------
+# Endpoint découpage vidéo
+# -------------------------------
+
 @app.route("/process_video", methods=["POST"])
 def process_video():
     """Endpoint principal : reçoit une vidéo + num_shorts → retourne shorts en base64"""
@@ -88,6 +137,37 @@ def process_video():
         return jsonify({
             "status": "success",
             "shorts": shorts
+        })
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# -------------------------------
+# Endpoint détection highlights
+# -------------------------------
+
+@app.route("/detect_highlights", methods=["POST"])
+def detect_highlights_endpoint():
+    """Analyse une vidéo et retourne les moments forts (timestamps)"""
+    try:
+        data = request.json
+        video_url = data.get("video_url")
+        threshold = int(data.get("threshold", 50))
+
+        if not video_url:
+            return jsonify({"error": "Missing video_url"}), 400
+
+        # Télécharger la vidéo temporaire
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmpfile:
+            download_video(video_url, tmpfile.name)
+
+            # Détecter les moments forts
+            highlights = detect_highlights(tmpfile.name, threshold)
+
+        return jsonify({
+            "status": "success",
+            "highlights": highlights
         })
 
     except Exception as e:
