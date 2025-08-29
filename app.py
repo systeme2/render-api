@@ -177,3 +177,81 @@ def detect_highlights_endpoint():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
+
+
+
+import shutil
+import time
+
+def save_base64_to_file(b64, out_path):
+    data = base64.b64decode(b64)
+    with open(out_path, "wb") as f:
+        f.write(data)
+    return out_path
+
+def extract_clip_ffmpeg(input_path, start, length, out_path):
+    cmd = [
+        FFMPEG_BIN,
+        "-ss", str(start),
+        "-i", input_path,
+        "-t", str(length),
+        "-c:v", "libx264",
+        "-c:a", "aac",
+        "-movflags", "+faststart",
+        "-y",
+        out_path
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return os.path.exists(out_path)
+
+@app.route("/process_clip", methods=["POST"])
+def process_clip():
+    """
+    POST JSON:
+    {
+      "video_url": "...",        # ou "file_base64": "..."
+      "start_time": 90.2,        # seconde
+      "clip_length": 15          # secondes (optionnel, default 15)
+    }
+    RETURN:
+    { "status":"success", "file_base64":"...", "filename":"clip_90_169...mp4" }
+    """
+    try:
+        data = request.get_json(force=True)
+        video_url = data.get("video_url")
+        file_b64 = data.get("file_base64")
+        start_time = float(data.get("start_time", 0))
+        clip_length = float(data.get("clip_length", 15))
+
+        if not video_url and not file_b64:
+            return jsonify({"status":"error","message":"Provide video_url or file_base64"}), 400
+
+        tmpdir = tempfile.mkdtemp(prefix="pc_")
+        in_path = os.path.join(tmpdir, "input.mp4")
+        out_path = os.path.join(tmpdir, "clip.mp4")
+
+        # Save input
+        if file_b64:
+            save_base64_to_file(file_b64, in_path)
+        else:
+            download_video(video_url, in_path)
+
+        # Extract clip
+        ok = extract_clip_ffmpeg(in_path, start_time, clip_length, out_path)
+        if not ok:
+            return jsonify({"status":"error","message":"Clip extraction failed"}), 500
+
+        with open(out_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        filename = f"clip_{int(start_time)}_{int(time.time())}.mp4"
+
+        return jsonify({"status":"success", "file_base64": b64, "filename": filename})
+    except Exception as e:
+        return jsonify({"status":"error", "message": str(e)}), 500
+    finally:
+        try:
+            shutil.rmtree(tmpdir)
+        except Exception:
+            pass
