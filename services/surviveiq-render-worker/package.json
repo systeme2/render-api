@@ -1,0 +1,17 @@
+{
+  "name": "surviveiq-render-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SURVIVEIQ dedicated FFmpeg render/probe worker. Phase 05B: /health and /probe only, no final render endpoint yet.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "fastify": "^4.28.1"
+  }
+}

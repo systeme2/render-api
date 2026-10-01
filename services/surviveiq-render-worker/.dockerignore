@@ -1,0 +1,8 @@
+node_modules
+test
+.env
+.env.*
+!.env.example
+*.log
+.git
+README.md
