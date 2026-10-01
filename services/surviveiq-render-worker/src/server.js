@@ -6,15 +6,15 @@ const config = require('./config');
 const { timingSafeEqual } = require('./security');
 const healthRoute = require('./routes/health');
 const probeRoute = require('./routes/probe');
+const renderRoute = require('./routes/render');
 
 function buildServer() {
   const app = fastify({
     logger: true,
-    bodyLimit: 16 * 1024, // only a tiny JSON body ({ url }) is ever expected
+    bodyLimit: 64 * 1024,
     genReqId: () => crypto.randomUUID()
   });
 
-  // Auth gate: every route except GET /health requires a valid bearer token.
   app.addHook('onRequest', async (request, reply) => {
     if (request.method === 'GET' && request.url.split('?')[0] === '/health') {
       return;
@@ -30,7 +30,6 @@ function buildServer() {
 
   app.setErrorHandler((error, request, reply) => {
     const status = reply.statusCode && reply.statusCode !== 200 ? reply.statusCode : 500;
-    // Never include the Authorization header, query strings, or stack traces in logs/responses.
     request.log.error({ route: request.url.split('?')[0], status: status }, error.message);
     reply.code(status).send({
       success: false,
@@ -55,6 +54,7 @@ function buildServer() {
 
   app.register(healthRoute);
   app.register(async (instance) => probeRoute(instance, config));
+  app.register(async (instance) => renderRoute(instance, config));
 
   return app;
 }

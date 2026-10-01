@@ -189,5 +189,6 @@ module.exports = {
   probeMediaUrl,
   probeLocalFile,
   mapFfprobeOutput,
-  execFileWithTimeout
+  execFileWithTimeout,
+  downloadToTemp
 };
